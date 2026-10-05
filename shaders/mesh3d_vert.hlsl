@@ -1,11 +1,13 @@
 struct VertexInput {
     float3 position : POSITION;
-    float3 color : COLOR0;
+    float3 normal : COLOR0;
+    float displacement : TEXCOORD0;
 };
 
 struct VertexOutput {
     float4 position : SV_Position;
-    float3 color : COLOR0;
+    float3 normal : COLOR0;
+    float displacement : TEXCOORD0;
 };
 [[vk::binding(0, 0)]] cbuffer CameraData {
     float4x4 view_projection;
@@ -14,6 +16,7 @@ struct VertexOutput {
 VertexOutput vs_main(VertexInput input) {
     VertexOutput output;
     output.position = mul(view_projection, float4(input.position, 1.0));
-    output.color = input.color;
+    output.normal = input.normal;
+    output.displacement = input.displacement;
     return output;
 }

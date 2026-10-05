@@ -1,40 +1,35 @@
-use glam::{Mat4, Vec3};
+use crate::{Mat4, Vec3};
 
 /// Camera pose for 3D rendering. `up` controls roll and should not be parallel
 /// to the direction from `eye` to `look_at`.
 #[derive(Clone, Copy, Debug)]
 pub struct Camera3d {
-    pub eye: [f32; 3],
-    pub look_at: [f32; 3],
-    pub up: [f32; 3],
+    pub eye: Vec3,
+    pub look_at: Vec3,
+    pub up: Vec3,
 }
 
 impl Default for Camera3d {
     fn default() -> Self {
         Self {
-            eye: [0.0, 0.0, 3.0],
-            look_at: [0.0; 3],
-            up: [0.0, 1.0, 0.0],
+            eye: Vec3::new(0.0, 0.0, 3.0),
+            look_at: Vec3::ZERO,
+            up: Vec3::Y,
         }
     }
 }
 
 impl Camera3d {
-    pub fn view_projection(self, projection: Projection3d) -> [[f32; 4]; 4] {
-        self.view_projection_matrix(projection).to_cols_array_2d()
+    pub fn view_projection(self, projection: Projection3d) -> Mat4 {
+        self.view_projection_matrix(projection)
     }
 
-    pub fn inverse_view_projection(self, projection: Projection3d) -> [[f32; 4]; 4] {
-        self.view_projection_matrix(projection)
-            .inverse()
-            .to_cols_array_2d()
+    pub fn inverse_view_projection(self, projection: Projection3d) -> Mat4 {
+        self.view_projection_matrix(projection).inverse()
     }
 
     fn view_projection_matrix(self, projection: Projection3d) -> Mat4 {
-        let eye = Vec3::from_array(self.eye);
-        let target = Vec3::from_array(self.look_at);
-        let up = Vec3::from_array(self.up);
-        let view = Mat4::look_at_rh(eye, target, up);
+        let view = Mat4::look_at_rh(self.eye, self.look_at, self.up);
         projection.matrix() * view
     }
 }

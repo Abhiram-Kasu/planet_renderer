@@ -1,14 +1,21 @@
 use planet_renderer::{
-    Camera3d, PositionColor, Projection3d, SdfSphereSettings, SphereRenderer, TriangleRenderer,
-    shaders,
+    Camera3d, PositionColor, Projection3d, SphereRenderer, SphereTerrainSettings,
+    TerrainColorRange, TriangleRenderer, shaders,
 };
 use std::{sync::Arc, time::Instant};
 use winit::{
     application::ApplicationHandler,
     event::WindowEvent,
-    event_loop::{ActiveEventLoop, EventLoop},
+    event_loop::{ActiveEventLoop, ControlFlow, EventLoop},
+    keyboard::{Key, NamedKey},
     window::{Window, WindowId},
 };
+
+const CAMERA_ZOOM_STEP: f32 = 0.25;
+const CAMERA_SMOOTHING: f32 = 7.0;
+const MIN_CAMERA_DISTANCE: f32 = 1.4;
+const MAX_CAMERA_DISTANCE: f32 = 8.0;
+const FRAME_INTERVAL: std::time::Duration = std::time::Duration::from_millis(16);
 
 struct RenderState {
     surface: wgpu::Surface<'static>,
@@ -17,9 +24,12 @@ struct RenderState {
     config: wgpu::SurfaceConfiguration,
     triangle: TriangleRenderer<PositionColor>,
     sphere: SphereRenderer,
-    sphere_settings: SdfSphereSettings,
+    depth: wgpu::Texture,
     started_at: Instant,
+    last_frame: Instant,
     camera: Camera3d,
+    camera_distance: f32,
+    target_camera_distance: f32,
     projection: Projection3d,
     show_sphere: bool,
 }
@@ -77,6 +87,7 @@ impl App {
             desired_maximum_frame_latency: 2,
         };
         surface.configure(&device, &config);
+        let depth = create_depth(&device, config.width, config.height);
         let vertices = [
             PositionColor {
                 position: [0.0, 0.65],
@@ -98,15 +109,15 @@ impl App {
             shaders::triangle_frag,
             &vertices,
         );
-        let sphere_settings = SdfSphereSettings::default();
         let sphere = SphereRenderer::new(
             &device,
             format,
-            shaders::sdf_sphere_vert,
-            shaders::sdf_sphere_frag,
-            sphere_settings,
+            SphereTerrainSettings::default(),
+            TerrainColorRange::default(),
         );
         eprintln!("pipeline ready");
+        let camera = Camera3d::default();
+        let camera_distance = camera.eye.distance(camera.look_at);
         RenderState {
             surface,
             device,
@@ -114,9 +125,12 @@ impl App {
             config,
             triangle,
             sphere,
-            sphere_settings,
+            depth,
             started_at: Instant::now(),
-            camera: Camera3d::default(),
+            last_frame: Instant::now(),
+            camera,
+            camera_distance,
+            target_camera_distance: camera_distance,
             projection: Projection3d::default(),
             show_sphere: true,
         }
@@ -130,6 +144,13 @@ impl App {
         let Some(state) = state_guard.as_mut() else {
             return;
         };
+        let now = Instant::now();
+        let delta_seconds = now.duration_since(state.last_frame).as_secs_f32().min(0.1);
+        state.last_frame = now;
+        let blend = 1.0 - (-CAMERA_SMOOTHING * delta_seconds).exp();
+        state.camera_distance += (state.target_camera_distance - state.camera_distance) * blend;
+        let camera_direction = (state.camera.eye - state.camera.look_at).normalize();
+        state.camera.eye = state.camera.look_at + camera_direction * state.camera_distance;
         let frame = match state.surface.get_current_texture() {
             wgpu::CurrentSurfaceTexture::Success(frame)
             | wgpu::CurrentSurfaceTexture::Suboptimal(frame) => frame,
@@ -142,19 +163,22 @@ impl App {
             | wgpu::CurrentSurfaceTexture::Validation => return,
         };
         let view = frame.texture.create_view(&Default::default());
+        let depth_view = state.depth.create_view(&Default::default());
         if state.show_sphere {
             state
                 .sphere
                 .set_camera(&state.queue, state.camera, state.projection);
-            let rotation = state.started_at.elapsed().as_secs_f32()
-                * state.sphere_settings.spin_speed_radians_per_second;
-            state.sphere.set_rotation(&state.queue, rotation);
         }
         let mut encoder = state
             .device
             .create_command_encoder(&wgpu::CommandEncoderDescriptor {
                 label: Some("triangle frame encoder"),
             });
+        if state.show_sphere {
+            state
+                .sphere
+                .update(&state.queue, &mut encoder, state.started_at.elapsed());
+        }
         {
             let mut pass = encoder.begin_render_pass(&wgpu::RenderPassDescriptor {
                 label: Some("triangle render pass"),
@@ -167,7 +191,18 @@ impl App {
                         store: wgpu::StoreOp::Store,
                     },
                 })],
-                depth_stencil_attachment: None,
+                depth_stencil_attachment: if state.show_sphere {
+                    Some(wgpu::RenderPassDepthStencilAttachment {
+                        view: &depth_view,
+                        depth_ops: Some(wgpu::Operations {
+                            load: wgpu::LoadOp::Clear(1.0),
+                            store: wgpu::StoreOp::Store,
+                        }),
+                        stencil_ops: None,
+                    })
+                } else {
+                    None
+                },
                 timestamp_writes: None,
                 occlusion_query_set: None,
                 multiview_mask: None,
@@ -234,31 +269,68 @@ impl ApplicationHandler for App {
                     state.config.width = size.width.max(1);
                     state.config.height = size.height.max(1);
                     state.surface.configure(&state.device, &state.config);
+                    state.depth =
+                        create_depth(&state.device, state.config.width, state.config.height);
                 }
             }
             WindowEvent::RedrawRequested => self.render(),
-            WindowEvent::KeyboardInput { event, .. }
-                if event.state.is_pressed()
-                    && event.logical_key
-                        == winit::keyboard::Key::Named(winit::keyboard::NamedKey::Space) =>
-            {
-                if let Some(state) = self
-                    .state
-                    .lock()
-                    .expect("render state lock poisoned")
-                    .as_mut()
-                {
-                    state.show_sphere = !state.show_sphere;
+            WindowEvent::KeyboardInput { event, .. } if event.state.is_pressed() => {
+                match event.logical_key {
+                    Key::Named(NamedKey::Space) => {
+                        if let Some(state) = self
+                            .state
+                            .lock()
+                            .expect("render state lock poisoned")
+                            .as_mut()
+                        {
+                            state.show_sphere = !state.show_sphere;
+                        }
+                        self.render();
+                    }
+                    Key::Named(key @ (NamedKey::ArrowUp | NamedKey::ArrowDown)) => {
+                        if let Some(state) = self
+                            .state
+                            .lock()
+                            .expect("render state lock poisoned")
+                            .as_mut()
+                        {
+                            let zoom_delta = match key {
+                                NamedKey::ArrowUp => CAMERA_ZOOM_STEP,
+                                _ => -CAMERA_ZOOM_STEP,
+                            };
+                            state.target_camera_distance = (state.target_camera_distance
+                                + zoom_delta)
+                                .clamp(MIN_CAMERA_DISTANCE, MAX_CAMERA_DISTANCE);
+                        }
+                    }
+                    _ => {}
                 }
-                self.render();
             }
             _ => {}
         }
     }
 
-    fn about_to_wait(&mut self, _event_loop: &ActiveEventLoop) {
+    fn about_to_wait(&mut self, event_loop: &ActiveEventLoop) {
+        event_loop.set_control_flow(ControlFlow::WaitUntil(Instant::now() + FRAME_INTERVAL));
         self.render();
     }
+}
+
+fn create_depth(device: &wgpu::Device, width: u32, height: u32) -> wgpu::Texture {
+    device.create_texture(&wgpu::TextureDescriptor {
+        label: Some("sphere depth texture"),
+        size: wgpu::Extent3d {
+            width,
+            height,
+            depth_or_array_layers: 1,
+        },
+        mip_level_count: 1,
+        sample_count: 1,
+        dimension: wgpu::TextureDimension::D2,
+        format: wgpu::TextureFormat::Depth32Float,
+        usage: wgpu::TextureUsages::RENDER_ATTACHMENT,
+        view_formats: &[],
+    })
 }
 
 #[cfg(not(target_arch = "wasm32"))]
