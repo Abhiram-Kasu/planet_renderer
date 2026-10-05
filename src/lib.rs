@@ -159,6 +159,7 @@ pub struct SphereRenderer {
     camera_buffer: wgpu::Buffer,
     camera_bind_group: wgpu::BindGroup,
     settings_buffer: wgpu::Buffer,
+    settings: SdfSphereSettings,
 }
 
 /// Editable controls for the ray-marched sphere and its simple lighting.
@@ -178,6 +179,7 @@ pub struct SdfSphereSettings {
     pub pattern_frequency: [f32; 2],
     pub pattern_threshold: f32,
     pub pattern_softness: f32,
+    pub spin_speed_radians_per_second: f32,
 }
 
 impl Default for SdfSphereSettings {
@@ -197,19 +199,20 @@ impl Default for SdfSphereSettings {
             pattern_frequency: [4.0, 3.0],
             pattern_threshold: 0.25,
             pattern_softness: 0.1,
+            spin_speed_radians_per_second: 0.7,
         }
     }
 }
 
 impl SdfSphereSettings {
-    fn gpu_data(self) -> [[f32; 4]; 6] {
+    fn gpu_data(self, rotation_radians: f32) -> [[f32; 4]; 6] {
         [
             [self.center[0], self.center[1], self.center[2], self.radius],
             [
                 self.max_steps as f32,
                 self.hit_epsilon,
                 self.max_distance,
-                0.0,
+                rotation_radians,
             ],
             [self.color[0], self.color[1], self.color[2], self.ambient],
             [
@@ -278,7 +281,7 @@ impl SphereRenderer {
             usage: wgpu::BufferUsages::UNIFORM | wgpu::BufferUsages::COPY_DST,
             mapped_at_creation: false,
         });
-        let settings_data = settings.gpu_data();
+        let settings_data = settings.gpu_data(0.0);
         let settings_buffer = device.create_buffer_init(&wgpu::util::BufferInitDescriptor {
             label: Some("SDF sphere settings"),
             contents: bytemuck::bytes_of(&settings_data),
@@ -338,6 +341,7 @@ impl SphereRenderer {
             camera_buffer,
             camera_bind_group,
             settings_buffer,
+            settings,
         }
     }
 
@@ -349,11 +353,20 @@ impl SphereRenderer {
         );
     }
 
-    pub fn set_settings(&self, queue: &wgpu::Queue, settings: SdfSphereSettings) {
+    pub fn set_settings(&mut self, queue: &wgpu::Queue, settings: SdfSphereSettings) {
+        self.settings = settings;
         queue.write_buffer(
             &self.settings_buffer,
             0,
-            bytemuck::bytes_of(&settings.gpu_data()),
+            bytemuck::bytes_of(&settings.gpu_data(0.0)),
+        );
+    }
+
+    pub fn set_rotation(&self, queue: &wgpu::Queue, rotation_radians: f32) {
+        queue.write_buffer(
+            &self.settings_buffer,
+            0,
+            bytemuck::bytes_of(&self.settings.gpu_data(rotation_radians)),
         );
     }
 

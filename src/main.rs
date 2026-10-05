@@ -2,7 +2,7 @@ use planet_renderer::{
     Camera3d, PositionColor, Projection3d, SdfSphereSettings, SphereRenderer, TriangleRenderer,
     shaders,
 };
-use std::sync::Arc;
+use std::{sync::Arc, time::Instant};
 use winit::{
     application::ApplicationHandler,
     event::WindowEvent,
@@ -17,6 +17,8 @@ struct RenderState {
     config: wgpu::SurfaceConfiguration,
     triangle: TriangleRenderer<PositionColor>,
     sphere: SphereRenderer,
+    sphere_settings: SdfSphereSettings,
+    started_at: Instant,
     camera: Camera3d,
     projection: Projection3d,
     show_sphere: bool,
@@ -96,12 +98,13 @@ impl App {
             shaders::triangle_frag,
             &vertices,
         );
+        let sphere_settings = SdfSphereSettings::default();
         let sphere = SphereRenderer::new(
             &device,
             format,
             shaders::sdf_sphere_vert,
             shaders::sdf_sphere_frag,
-            SdfSphereSettings::default(),
+            sphere_settings,
         );
         eprintln!("pipeline ready");
         RenderState {
@@ -111,6 +114,8 @@ impl App {
             config,
             triangle,
             sphere,
+            sphere_settings,
+            started_at: Instant::now(),
             camera: Camera3d::default(),
             projection: Projection3d::default(),
             show_sphere: true,
@@ -141,6 +146,9 @@ impl App {
             state
                 .sphere
                 .set_camera(&state.queue, state.camera, state.projection);
+            let rotation = state.started_at.elapsed().as_secs_f32()
+                * state.sphere_settings.spin_speed_radians_per_second;
+            state.sphere.set_rotation(&state.queue, rotation);
         }
         let mut encoder = state
             .device
