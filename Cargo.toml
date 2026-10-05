@@ -17,6 +17,8 @@ shaderc = "0.9.1"
 [target.'cfg(target_arch = "wasm32")'.dependencies]
 wasm-bindgen = "0.2"
 wasm-bindgen-futures = "0.4"
+web-time = "1.1"
+console_error_panic_hook = "0.1"
 
 [lib]
 path = "src/lib.rs"

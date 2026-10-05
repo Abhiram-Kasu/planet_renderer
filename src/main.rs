@@ -3,7 +3,11 @@ use planet_renderer::{
     Camera3d, PositionColor, Projection3d, SphereRenderer, SphereTerrainSettings,
     TerrainColorRange, TriangleRenderer, shaders,
 };
-use std::{sync::Arc, time::Instant};
+use std::sync::Arc;
+#[cfg(not(target_arch = "wasm32"))]
+use std::time::{Duration, Instant};
+#[cfg(target_arch = "wasm32")]
+use web_time::{Duration, Instant};
 use winit::{
     application::ApplicationHandler,
     event::WindowEvent,
@@ -17,7 +21,7 @@ const CAMERA_ROTATION_STEP: f32 = std::f32::consts::PI / 90.0;
 const CAMERA_SMOOTHING: f32 = 7.0;
 const MIN_CAMERA_DISTANCE: f32 = 1.4;
 const MAX_CAMERA_DISTANCE: f32 = 8.0;
-const FRAME_INTERVAL: std::time::Duration = std::time::Duration::from_millis(16);
+const FRAME_INTERVAL: Duration = Duration::from_millis(16);
 
 struct RenderState {
     surface: wgpu::Surface<'static>,
@@ -243,9 +247,15 @@ impl ApplicationHandler for App {
         if self.window.is_some() {
             return;
         }
+        let window_attributes = Window::default_attributes().with_title("Gradient triangle");
+        #[cfg(target_arch = "wasm32")]
+        let window_attributes = {
+            use winit::platform::web::WindowAttributesExtWebSys;
+            window_attributes.with_append(true)
+        };
         let window = Arc::new(
             event_loop
-                .create_window(Window::default_attributes().with_title("Gradient triangle"))
+                .create_window(window_attributes)
                 .expect("window creation failed"),
         );
         #[cfg(not(target_arch = "wasm32"))]
@@ -370,9 +380,13 @@ fn main() {
 }
 
 #[cfg(target_arch = "wasm32")]
-#[wasm_bindgen::prelude::wasm_bindgen(start)]
-fn main() {
+#[wasm_bindgen::prelude::wasm_bindgen]
+pub fn start_web_app() {
+    console_error_panic_hook::set_once();
     use winit::platform::web::EventLoopExtWebSys;
     let event_loop = EventLoop::new().expect("event loop creation failed");
     event_loop.spawn_app(App::new());
 }
+
+#[cfg(target_arch = "wasm32")]
+fn main() {}
