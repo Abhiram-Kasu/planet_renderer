@@ -1,4 +1,7 @@
-use planet_renderer::{PositionColor, TriangleRenderer, shaders};
+use planet_renderer::{
+    Camera3d, PositionColor, Projection3d, SdfSphereSettings, SphereRenderer, TriangleRenderer,
+    shaders,
+};
 use std::sync::Arc;
 use winit::{
     application::ApplicationHandler,
@@ -13,6 +16,10 @@ struct RenderState {
     queue: wgpu::Queue,
     config: wgpu::SurfaceConfiguration,
     triangle: TriangleRenderer<PositionColor>,
+    sphere: SphereRenderer,
+    camera: Camera3d,
+    projection: Projection3d,
+    show_sphere: bool,
 }
 
 struct App {
@@ -89,6 +96,13 @@ impl App {
             shaders::triangle_frag,
             &vertices,
         );
+        let sphere = SphereRenderer::new(
+            &device,
+            format,
+            shaders::sdf_sphere_vert,
+            shaders::sdf_sphere_frag,
+            SdfSphereSettings::default(),
+        );
         eprintln!("pipeline ready");
         RenderState {
             surface,
@@ -96,6 +110,10 @@ impl App {
             queue,
             config,
             triangle,
+            sphere,
+            camera: Camera3d::default(),
+            projection: Projection3d::default(),
+            show_sphere: true,
         }
     }
 
@@ -119,6 +137,11 @@ impl App {
             | wgpu::CurrentSurfaceTexture::Validation => return,
         };
         let view = frame.texture.create_view(&Default::default());
+        if state.show_sphere {
+            state
+                .sphere
+                .set_camera(&state.queue, state.camera, state.projection);
+        }
         let mut encoder = state
             .device
             .create_command_encoder(&wgpu::CommandEncoderDescriptor {
@@ -141,7 +164,17 @@ impl App {
                 occlusion_query_set: None,
                 multiview_mask: None,
             });
-            state.triangle.draw(&mut pass);
+            if state.show_sphere {
+                let side = state.config.width.min(state.config.height) as f32;
+                let x = (state.config.width as f32 - side) * 0.5;
+                let y = (state.config.height as f32 - side) * 0.5;
+                pass.set_viewport(x, y, side, side, 0.0, 1.0);
+            }
+            if state.show_sphere {
+                state.sphere.draw(&mut pass);
+            } else {
+                state.triangle.draw(&mut pass);
+            }
         }
         state.queue.submit([encoder.finish()]);
         state.queue.present(frame);
@@ -196,6 +229,21 @@ impl ApplicationHandler for App {
                 }
             }
             WindowEvent::RedrawRequested => self.render(),
+            WindowEvent::KeyboardInput { event, .. }
+                if event.state.is_pressed()
+                    && event.logical_key
+                        == winit::keyboard::Key::Named(winit::keyboard::NamedKey::Space) =>
+            {
+                if let Some(state) = self
+                    .state
+                    .lock()
+                    .expect("render state lock poisoned")
+                    .as_mut()
+                {
+                    state.show_sphere = !state.show_sphere;
+                }
+                self.render();
+            }
             _ => {}
         }
     }
