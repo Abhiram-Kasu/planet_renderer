@@ -15,6 +15,13 @@ struct TerrainVertex {
     float4 mesh_parameters;
 };
 
+[[vk::binding(4, 0)]] cbuffer AnimationParameters {
+    uint terrain_seed;
+    float elapsed_seconds;
+    float animation_speed;
+    float padding;
+};
+
 float terrain_height(float3 direction) {
     float weighted_height = 0.0;
     float total_weight = 0.0;
@@ -29,8 +36,15 @@ float terrain_height(float3 direction) {
     return terrain_parameters.x * weighted_height / total_weight;
 }
 
+float animated_height(float3 direction) {
+    float phase = elapsed_seconds * animation_speed * 2.0
+        + dot(direction, float3(3.1, 2.3, 2.7));
+    float living_motion = sin(phase) * terrain_parameters.x * 0.25;
+    return terrain_height(direction) + living_motion;
+}
+
 float3 displaced_position(float3 direction) {
-    float height = terrain_height(direction);
+    float height = animated_height(direction);
     return sphere_parameters.xyz + direction * (sphere_parameters.w + height);
 }
 
@@ -48,7 +62,7 @@ void cs_main(uint3 dispatch_id : SV_DispatchThreadID) {
     uint wrapped_longitude = longitude % longitude_segments;
 
     float3 direction = normalize(base_directions[vertex_index].xyz);
-    float height = terrain_height(direction);
+    float height = animated_height(direction);
     float3 position = sphere_parameters.xyz + direction * (sphere_parameters.w + height);
 
     uint before_latitude = latitude > 0 ? latitude - 1 : 0;

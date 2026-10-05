@@ -233,6 +233,7 @@ impl SphereRenderer {
                     storage_entry(1, false),
                     storage_entry(2, true),
                     uniform_entry(3, wgpu::ShaderStages::COMPUTE),
+                    uniform_entry(4, wgpu::ShaderStages::COMPUTE),
                 ],
             });
         let vertex_compute_bind_group = device.create_bind_group(&wgpu::BindGroupDescriptor {
@@ -243,6 +244,7 @@ impl SphereRenderer {
                 buffer_entry(1, &vertices),
                 buffer_entry(2, &terrain_samples),
                 buffer_entry(3, &terrain_parameters_buffer),
+                buffer_entry(4, &animation_buffer),
             ],
         });
         let vertex_compute_pipeline_layout =
