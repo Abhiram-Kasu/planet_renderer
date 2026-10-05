@@ -80,8 +80,8 @@ impl Default for TerrainColorRange {
         Self {
             minimum_displacement: 0.0,
             maximum_displacement: 0.15,
-            low_color: glam::Vec3::new(0.18, 0.36, 0.22),
-            high_color: glam::Vec3::new(0.9, 0.76, 0.48),
+            low_color: glam::Vec3::new(0.1, 0.1, 0.1),
+            high_color: glam::Vec3::ONE,
             ambient: 0.22,
             diffuse: 0.78,
             light_direction: glam::Vec3::new(0.4, 0.7, 1.0),
@@ -284,7 +284,12 @@ impl SphereRenderer {
         });
         let color_layout = device.create_bind_group_layout(&wgpu::BindGroupLayoutDescriptor {
             label: Some("terrain color range layout"),
-            entries: &[uniform_entry(0, wgpu::ShaderStages::FRAGMENT)],
+            entries: &[
+                uniform_entry(0, wgpu::ShaderStages::FRAGMENT),
+                storage_entry_visible(1, true, wgpu::ShaderStages::FRAGMENT),
+                uniform_entry(2, wgpu::ShaderStages::FRAGMENT),
+                uniform_entry(3, wgpu::ShaderStages::FRAGMENT),
+            ],
         });
         let color_data = color_range.gpu_data();
         let color_buffer = device.create_buffer_init(&wgpu::util::BufferInitDescriptor {
@@ -295,7 +300,12 @@ impl SphereRenderer {
         let color_bind_group = device.create_bind_group(&wgpu::BindGroupDescriptor {
             label: Some("terrain color range bindings"),
             layout: &color_layout,
-            entries: &[buffer_entry(0, &color_buffer)],
+            entries: &[
+                buffer_entry(0, &color_buffer),
+                buffer_entry(1, &terrain_samples),
+                buffer_entry(2, &terrain_parameters_buffer),
+                buffer_entry(3, &animation_buffer),
+            ],
         });
         let render_pipeline_layout =
             device.create_pipeline_layout(&wgpu::PipelineLayoutDescriptor {
@@ -444,9 +454,17 @@ fn uniform_entry(binding: u32, visibility: wgpu::ShaderStages) -> wgpu::BindGrou
 }
 
 fn storage_entry(binding: u32, read_only: bool) -> wgpu::BindGroupLayoutEntry {
+    storage_entry_visible(binding, read_only, wgpu::ShaderStages::COMPUTE)
+}
+
+fn storage_entry_visible(
+    binding: u32,
+    read_only: bool,
+    visibility: wgpu::ShaderStages,
+) -> wgpu::BindGroupLayoutEntry {
     wgpu::BindGroupLayoutEntry {
         binding,
-        visibility: wgpu::ShaderStages::COMPUTE,
+        visibility,
         ty: wgpu::BindingType::Buffer {
             ty: wgpu::BufferBindingType::Storage { read_only },
             has_dynamic_offset: false,
