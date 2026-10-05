@@ -1,3 +1,4 @@
+use glam::{Quat, Vec3};
 use planet_renderer::{
     Camera3d, PositionColor, Projection3d, SphereRenderer, SphereTerrainSettings,
     TerrainColorRange, TriangleRenderer, shaders,
@@ -12,6 +13,7 @@ use winit::{
 };
 
 const CAMERA_ZOOM_STEP: f32 = 0.25;
+const CAMERA_ROTATION_STEP: f32 = std::f32::consts::PI / 90.0;
 const CAMERA_SMOOTHING: f32 = 7.0;
 const MIN_CAMERA_DISTANCE: f32 = 1.4;
 const MAX_CAMERA_DISTANCE: f32 = 8.0;
@@ -28,8 +30,11 @@ struct RenderState {
     started_at: Instant,
     last_frame: Instant,
     camera: Camera3d,
+    camera_orbit_direction: Vec3,
     camera_distance: f32,
     target_camera_distance: f32,
+    camera_yaw: f32,
+    target_camera_yaw: f32,
     projection: Projection3d,
     show_sphere: bool,
 }
@@ -117,6 +122,7 @@ impl App {
         );
         eprintln!("pipeline ready");
         let camera = Camera3d::default();
+        let camera_orbit_direction = (camera.eye - camera.look_at).normalize();
         let camera_distance = camera.eye.distance(camera.look_at);
         RenderState {
             surface,
@@ -129,8 +135,11 @@ impl App {
             started_at: Instant::now(),
             last_frame: Instant::now(),
             camera,
+            camera_orbit_direction,
             camera_distance,
             target_camera_distance: camera_distance,
+            camera_yaw: 0.0,
+            target_camera_yaw: 0.0,
             projection: Projection3d::default(),
             show_sphere: true,
         }
@@ -149,7 +158,12 @@ impl App {
         state.last_frame = now;
         let blend = 1.0 - (-CAMERA_SMOOTHING * delta_seconds).exp();
         state.camera_distance += (state.target_camera_distance - state.camera_distance) * blend;
-        let camera_direction = (state.camera.eye - state.camera.look_at).normalize();
+        let yaw_delta = (state.target_camera_yaw - state.camera_yaw + std::f32::consts::PI)
+            .rem_euclid(std::f32::consts::TAU)
+            - std::f32::consts::PI;
+        state.camera_yaw += yaw_delta * blend;
+        let rotation = Quat::from_axis_angle(state.camera.up.normalize(), state.camera_yaw);
+        let camera_direction = rotation * state.camera_orbit_direction;
         state.camera.eye = state.camera.look_at + camera_direction * state.camera_distance;
         let frame = match state.surface.get_current_texture() {
             wgpu::CurrentSurfaceTexture::Success(frame)
@@ -301,6 +315,20 @@ impl ApplicationHandler for App {
                             state.target_camera_distance = (state.target_camera_distance
                                 + zoom_delta)
                                 .clamp(MIN_CAMERA_DISTANCE, MAX_CAMERA_DISTANCE);
+                        }
+                    }
+                    Key::Named(key @ (NamedKey::ArrowRight | NamedKey::ArrowLeft)) => {
+                        if let Some(state) = self
+                            .state
+                            .lock()
+                            .expect("render state lock poisoned")
+                            .as_mut()
+                        {
+                            let rotation_delta = match key {
+                                NamedKey::ArrowLeft => -CAMERA_ROTATION_STEP,
+                                _ => CAMERA_ROTATION_STEP,
+                            };
+                            state.target_camera_yaw += rotation_delta;
                         }
                     }
                     _ => {}
