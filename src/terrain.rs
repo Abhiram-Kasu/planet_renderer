@@ -57,8 +57,8 @@ impl Default for SphereTerrainSettings {
             terrain_amplitude: 0.25,
             terrain_smoothing: 0.01,
             animation_speed: 1.0,
-            latitude_segments: 64,
-            longitude_segments: 128,
+            latitude_segments: 64 * 3,
+            longitude_segments: 128 * 3,
         }
     }
 }

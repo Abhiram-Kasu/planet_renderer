@@ -17,7 +17,7 @@ use winit::{
 };
 
 const CAMERA_ZOOM_STEP: f32 = 0.25;
-const CAMERA_ROTATION_STEP: f32 = std::f32::consts::PI / 90.0;
+const CAMERA_ROTATION_STEP: f32 = std::f32::consts::PI / 90.0 * 2.0;
 const CAMERA_SMOOTHING: f32 = 7.0;
 const MIN_CAMERA_DISTANCE: f32 = 1.4;
 const MAX_CAMERA_DISTANCE: f32 = 8.0;
